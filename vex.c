@@ -14,6 +14,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <pty.h>
+#include <X11/Xft/Xft.h>
 
 /* Launching /bin/sh may launch a GNU Bash and that can have nasty side
  * effects. On my system, it clobbers ~/.bash_history because it doesn't
@@ -38,8 +39,10 @@ struct X11
     unsigned long col_fg, col_bg;
     int w, h;
 
-    XFontStruct *xfont;
+    XftFont* font;
+    XftDraw* fdraw;
     int font_width, font_height;
+    XftColor* fcol_fg;
 
     char *buf;
     int buf_w, buf_h;
@@ -110,7 +113,6 @@ x11_redraw(struct X11 *x11)
     XSetForeground(x11->dpy, x11->termgc, x11->col_bg);
     XFillRectangle(x11->dpy, x11->termwin, x11->termgc, 0, 0, x11->w, x11->h);
 
-    XSetForeground(x11->dpy, x11->termgc, x11->col_fg);
     for (y = 0; y < x11->buf_h; y++)
     {
         for (x = 0; x < x11->buf_w; x++)
@@ -118,10 +120,12 @@ x11_redraw(struct X11 *x11)
             buf[0] = x11->buf[y * x11->buf_w + x];
             if (!iscntrl(buf[0]))
             {
-                XDrawString(x11->dpy, x11->termwin, x11->termgc,
+
+                XftDrawString8(x11->fdraw, x11->fcol_fg, x11->font,
                             x * x11->font_width,
-                            y * x11->font_height + x11->xfont->ascent,
-                            buf, 1);
+                            y * x11->font_height + x11->font->ascent,
+                            (XftChar8 *) buf, 1);
+
             }
         }
     }
@@ -152,30 +156,42 @@ x11_setup(struct X11 *x11)
     x11->root = RootWindow(x11->dpy, x11->screen);
     x11->fd = ConnectionNumber(x11->dpy);
 
-    x11->xfont = XLoadQueryFont(x11->dpy, "fixed");
-    if (x11->xfont == NULL)
+    x11->font = XftFontOpenName(x11->dpy, x11->screen,
+                                "Monospace:size=22");
+
+    if (x11->font == NULL)
     {
         fprintf(stderr, "Could not load font\n");
         return false;
     }
-    x11->font_width = XTextWidth(x11->xfont, "m", 1);
-    x11->font_height = x11->xfont->ascent + x11->xfont->descent;
+
+    x11->font_height = x11->font->height;
+    XGlyphInfo ext;
+    XftTextExtents8(x11->dpy, x11->font, (FcChar8 *)"m", 1, &ext);
+    x11->font_width = ext.width + 2;
 
     cmap = DefaultColormap(x11->dpy, x11->screen);
 
-    if (!XAllocNamedColor(x11->dpy, cmap, "#000000", &color, &color))
+    if (!XAllocNamedColor(x11->dpy, cmap, "white", &color, &color))
     {
         fprintf(stderr, "Could not load bg color\n");
         return false;
     }
     x11->col_bg = color.pixel;
 
-    if (!XAllocNamedColor(x11->dpy, cmap, "#aaaaaa", &color, &color))
+    if (!XAllocNamedColor(x11->dpy, cmap, "black", &color, &color))
     {
         fprintf(stderr, "Could not load fg color\n");
         return false;
     }
     x11->col_fg = color.pixel;
+
+    // init XftColor for use with text
+    if (!XftColorAllocName(x11->dpy, DefaultVisual(x11->dpy, x11->screen), cmap, "#000000", x11->fcol_fg))
+    {
+        fprintf(stderr, "Could not load font fg color\n");
+        return false;
+    }
 
     /* The terminal will have a fixed size of 80x25 cells. This is an
      * arbitrary number. No resizing has been implemented and child
@@ -209,6 +225,15 @@ x11_setup(struct X11 *x11)
     XStoreName(x11->dpy, x11->termwin, "vex");
     XMapWindow(x11->dpy, x11->termwin);
     x11->termgc = XCreateGC(x11->dpy, x11->termwin, 0, NULL);
+
+    // init draw for xft drawing
+    x11->fdraw = XftDrawCreate(x11->dpy, x11->termwin,
+                               DefaultVisual(x11->dpy, x11->screen), cmap);
+    if (x11->fdraw == NULL)
+    {
+        fprintf(stderr, "Could not create xft draw \n");
+        return false;
+    }
 
     XSync(x11->dpy, False);
 
