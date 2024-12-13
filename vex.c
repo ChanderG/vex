@@ -43,15 +43,15 @@ struct X11
     XftFont* font;
     XftDraw* fdraw;
     int font_width, font_height;
-    XftColor* fcol_fg;
+    XftColor fcol_fg;
 
-    char *buf;
     int buf_w, buf_h;
-    int buf_x, buf_y;
 };
 
 struct PTY pty;
 VTerm *vt;
+VTermScreen *vts;
+VTermState *vtstate;
 
 bool
 term_set_size(struct PTY *pty, struct X11 *x11)
@@ -120,7 +120,7 @@ void
 x11_redraw(struct X11 *x11)
 {
     int x, y;
-    char buf[1];
+    VTermScreenCell cell;
 
     XSetForeground(x11->dpy, x11->termgc, x11->col_bg);
     XFillRectangle(x11->dpy, x11->termwin, x11->termgc, 0, 0, x11->w, x11->h);
@@ -129,23 +129,22 @@ x11_redraw(struct X11 *x11)
     {
         for (x = 0; x < x11->buf_w; x++)
         {
-            buf[0] = x11->buf[y * x11->buf_w + x];
-            if (!iscntrl(buf[0]))
-            {
+            vterm_screen_get_cell(vts, (VTermPos){.row = y, .col = x}, &cell);
 
-                XftDrawString8(x11->fdraw, x11->fcol_fg, x11->font,
-                            x * x11->font_width,
-                            y * x11->font_height + x11->font->ascent,
-                            (XftChar8 *) buf, 1);
-
-            }
+            XftDrawString8(x11->fdraw, &x11->fcol_fg, x11->font,
+                        x * x11->font_width,
+                        y * x11->font_height + x11->font->ascent,
+                        (XftChar8 *) cell.chars, cell.width);
         }
     }
 
     XSetForeground(x11->dpy, x11->termgc, x11->col_fg);
+
+    VTermPos cursor;
+    vterm_state_get_cursorpos(vtstate, &cursor);
     XFillRectangle(x11->dpy, x11->termwin, x11->termgc,
-                   x11->buf_x * x11->font_width,
-                   x11->buf_y * x11->font_height,
+                   cursor.col * x11->font_width,
+                   cursor.row * x11->font_height,
                    x11->font_width, x11->font_height);
 
     XSync(x11->dpy, False);
@@ -199,7 +198,10 @@ x11_setup(struct X11 *x11)
     x11->col_fg = color.pixel;
 
     // init XftColor for use with text
-    if (!XftColorAllocName(x11->dpy, DefaultVisual(x11->dpy, x11->screen), cmap, "#000000", x11->fcol_fg))
+    if (XftColorAllocName(x11->dpy,
+                           DefaultVisual(x11->dpy, x11->screen),
+                           cmap,
+                          "black", &x11->fcol_fg) == False)
     {
         fprintf(stderr, "Could not load font fg color\n");
         return false;
@@ -208,22 +210,11 @@ x11_setup(struct X11 *x11)
     /* The terminal will have a fixed size of 80x25 cells. This is an
      * arbitrary number. No resizing has been implemented and child
      * processes can't even ask us for the current size (for now).
-     *
-     * buf_x, buf_y will be the current cursor position. */
+     */
     x11->buf_w = 80;
     x11->buf_h = 25;
-    x11->buf_x = 0;
-    x11->buf_y = 0;
-    x11->buf = calloc(x11->buf_w * x11->buf_h, 1);
-    if (x11->buf == NULL)
-    {
-        perror("calloc");
-        return false;
-    }
-
     x11->w = x11->buf_w * x11->font_width;
     x11->h = x11->buf_h * x11->font_height;
-
 
     x11->termwin = XCreateSimpleWindow(x11->dpy, x11->root,
                                        0, 0,
@@ -294,11 +285,11 @@ spawn(struct PTY *pty)
 int
 run(struct PTY *pty, struct X11 *x11)
 {
-    int i, maxfd;
+    int maxfd;
     fd_set readable;
     XEvent ev;
-    char buf[1];
-    bool just_wrapped = false;
+    char* buf = (char *)malloc(100*sizeof(char));
+    size_t bread;
 
     maxfd = pty->master > x11->fd ? pty->master : x11->fd;
 
@@ -316,7 +307,8 @@ run(struct PTY *pty, struct X11 *x11)
 
         if (FD_ISSET(pty->master, &readable))
         {
-            if (read(pty->master, buf, 1) <= 0)
+            bread = read(pty->master, buf, 100);
+            if (bread <= 0)
             {
                 /* This is not necessarily an error but also happens
                  * when the child exits normally. */
@@ -325,66 +317,7 @@ run(struct PTY *pty, struct X11 *x11)
                 return 1;
             }
 
-            if (buf[0] == '\r')
-            {
-                /* "Carriage returns" are probably the most simple
-                 * "terminal command": They just make the cursor jump
-                 * back to the very first column. */
-                x11->buf_x = 0;
-            }
-            else
-            {
-                if (buf[0] != '\n')
-                {
-                    /* If this is a regular byte, store it and advance
-                     * the cursor one cell "to the right". This might
-                     * actually wrap to the next line, see below. */
-                    x11->buf[x11->buf_y * x11->buf_w + x11->buf_x] = buf[0];
-                    x11->buf_x++;
-
-                    if (x11->buf_x >= x11->buf_w)
-                    {
-                        x11->buf_x = 0;
-                        x11->buf_y++;
-                        just_wrapped = true;
-                    }
-                    else
-                        just_wrapped = false;
-                }
-                else if (!just_wrapped)
-                {
-                    /* We read a newline and we did *not* implicitly
-                     * wrap to the next line with the last byte we read.
-                     * This means we must *now* advance to the next
-                     * line.
-                     *
-                     * This is the same behaviour that most other
-                     * terminals have: If you print a full line and then
-                     * a newline, they "ignore" that newline. (Just
-                     * think about it: A full line of text could always
-                     * wrap to the next line implicitly, so that
-                     * additional newline could cause the cursor to jump
-                     * to the next line *again*.) */
-                    x11->buf_y++;
-                    just_wrapped = false;
-                }
-
-                /* We now check if "the next line" is actually outside
-                 * of the buffer. If it is, we shift the entire content
-                 * one line up and then stay in the very last line.
-                 *
-                 * After the memmove(), the last line still has the old
-                 * content. We must clear it. */
-                if (x11->buf_y >= x11->buf_h)
-                {
-                    memmove(x11->buf, &x11->buf[x11->buf_w],
-                            x11->buf_w * (x11->buf_h - 1));
-                    x11->buf_y = x11->buf_h - 1;
-
-                    for (i = 0; i < x11->buf_w; i++)
-                        x11->buf[x11->buf_y * x11->buf_w + i] = 0;
-                }
-            }
+            vterm_input_write(vt, buf, bread);
 
             x11_redraw(x11);
         }
@@ -428,6 +361,10 @@ main()
     if (vt == NULL)
         return 1;
 
+    vterm_set_utf8(vt, 0);
+    vtstate = vterm_obtain_state(vt);
+    vterm_state_reset(vtstate, 1);
+    vts = vterm_obtain_screen(vt);
     vterm_output_set_callback(vt, &vt_output_callback, NULL);
 
     if (!term_set_size(&pty, &x11))
