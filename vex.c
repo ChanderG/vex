@@ -15,6 +15,7 @@
 #include <X11/Xutil.h>
 #include <pty.h>
 #include <X11/Xft/Xft.h>
+#include <vterm.h>
 
 /* Launching /bin/sh may launch a GNU Bash and that can have nasty side
  * effects. On my system, it clobbers ~/.bash_history because it doesn't
@@ -404,10 +405,18 @@ main()
     struct PTY pty;
     struct X11 x11;
 
+    VTerm *vt;
+    int rows, cols;
+    rows = 25, cols = 80;
+
     if (!x11_setup(&x11))
         return 1;
 
     if (!pt_pair(&pty))
+        return 1;
+
+    vt = vterm_new(rows, cols);
+    if (vt == NULL)
         return 1;
 
     if (!term_set_size(&pty, &x11))
