@@ -50,6 +50,9 @@ struct X11
     int buf_x, buf_y;
 };
 
+struct PTY pty;
+VTerm *vt;
+
 bool
 term_set_size(struct PTY *pty, struct X11 *x11)
 {
@@ -94,7 +97,15 @@ pt_pair(struct PTY *pty)
 }
 
 void
-x11_key(XKeyEvent *ev, struct PTY *pty)
+vt_output_callback(const char* s, size_t len, void *user)
+{
+    (void)user;
+    for (size_t i = 0; i < len; i++)
+        write(pty.master, &s[i], 1);
+}
+
+void
+x11_key(XKeyEvent *ev)
 {
     char buf[32];
     int i, num;
@@ -102,7 +113,7 @@ x11_key(XKeyEvent *ev, struct PTY *pty)
 
     num = XLookupString(ev, buf, sizeof buf, &ksym, 0);
     for (i = 0; i < num; i++)
-        write(pty->master, &buf[i], 1);
+        vterm_keyboard_unichar(vt, buf[i], VTERM_MOD_NONE);
 }
 
 void
@@ -389,7 +400,7 @@ run(struct PTY *pty, struct X11 *x11)
                         x11_redraw(x11);
                         break;
                     case KeyPress:
-                        x11_key(&ev.xkey, pty);
+                        x11_key(&ev.xkey);
                         break;
                 }
             }
@@ -402,10 +413,8 @@ run(struct PTY *pty, struct X11 *x11)
 int
 main()
 {
-    struct PTY pty;
     struct X11 x11;
 
-    VTerm *vt;
     int rows, cols;
     rows = 25, cols = 80;
 
@@ -418,6 +427,8 @@ main()
     vt = vterm_new(rows, cols);
     if (vt == NULL)
         return 1;
+
+    vterm_output_set_callback(vt, &vt_output_callback, NULL);
 
     if (!term_set_size(&pty, &x11))
         return 1;
