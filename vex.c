@@ -403,6 +403,7 @@ main()
     vterm_state_reset(vtstate, 1);
     vts = vterm_obtain_screen(vt);
     vterm_output_set_callback(vt, &vt_output_callback, NULL);
+    vterm_screen_enable_altscreen(vts, 1);
 
     if (!term_set_size(&pty, &x11))
         return 1;
