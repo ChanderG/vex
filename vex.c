@@ -112,8 +112,21 @@ x11_key(XKeyEvent *ev)
     KeySym ksym;
 
     num = XLookupString(ev, buf, sizeof buf, &ksym, 0);
-    for (i = 0; i < num; i++)
-        vterm_keyboard_unichar(vt, buf[i], VTERM_MOD_NONE);
+    if (ksym == XK_Left)
+        vterm_keyboard_key(vt, VTERM_KEY_LEFT, VTERM_MOD_NONE);
+    else if (ksym == XK_Right)
+        vterm_keyboard_key(vt, VTERM_KEY_RIGHT, VTERM_MOD_NONE);
+    else if (ksym == XK_Up)
+        vterm_keyboard_key(vt, VTERM_KEY_UP, VTERM_MOD_NONE);
+    else if (ksym == XK_Down)
+        vterm_keyboard_key(vt, VTERM_KEY_DOWN, VTERM_MOD_NONE);
+    else if (ksym == XK_Prior)
+        vterm_keyboard_key(vt, VTERM_KEY_PAGEUP, VTERM_MOD_NONE);
+    else if (ksym == XK_Next)
+        vterm_keyboard_key(vt, VTERM_KEY_PAGEDOWN, VTERM_MOD_NONE);
+    else
+        for (i = 0; i < num; i++)
+            vterm_keyboard_unichar(vt, buf[i], VTERM_MOD_NONE);
 }
 
 void
@@ -247,7 +260,7 @@ bool
 spawn(struct PTY *pty)
 {
     pid_t p;
-    char *env[] = { "TERM=dumb", NULL };
+    char *env[] = { "TERM=xterm", NULL };
 
     p = fork();
     if (p == 0)
