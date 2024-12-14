@@ -43,7 +43,7 @@ struct X11
     XftFont* font;
     XftDraw* fdraw;
     int font_width, font_height;
-    XftColor fcol_fg;
+    XftColor fcol_fg, fcol_bg;
 
     int buf_w, buf_h;
 };
@@ -144,6 +144,21 @@ x11_redraw(struct X11 *x11)
         {
             vterm_screen_get_cell(vts, (VTermPos){.row = y, .col = x}, &cell);
 
+            if (cell.attrs.reverse) {
+                // draw background of cell
+                XSetForeground(x11->dpy, x11->termgc, x11->col_fg);
+                XFillRectangle(x11->dpy, x11->termwin, x11->termgc,
+                            x * x11->font_width,
+                            y * x11->font_height,
+                            x11->font_width, x11->font_height);
+
+                XftDrawString8(x11->fdraw, &x11->fcol_bg, x11->font,
+                            x * x11->font_width,
+                            y * x11->font_height + x11->font->ascent,
+                            (XftChar8 *) cell.chars, cell.width);
+                continue;
+            }
+
             XftDrawString8(x11->fdraw, &x11->fcol_fg, x11->font,
                         x * x11->font_width,
                         y * x11->font_height + x11->font->ascent,
@@ -217,6 +232,15 @@ x11_setup(struct X11 *x11)
                           "black", &x11->fcol_fg) == False)
     {
         fprintf(stderr, "Could not load font fg color\n");
+        return false;
+    }
+
+    if (XftColorAllocName(x11->dpy,
+                           DefaultVisual(x11->dpy, x11->screen),
+                           cmap,
+                          "white", &x11->fcol_bg) == False)
+    {
+        fprintf(stderr, "Could not load font bg color\n");
         return false;
     }
 
