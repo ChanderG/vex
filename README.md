@@ -4,11 +4,7 @@
 
 Dependencies include X11, Xft etc.
 
-You also need libvterm installed:
-1. Install `libvterm`: https://www.leonerd.org.uk/code/libvterm/
-2. You may need the following:
-```
-export PKG_CONFIG_PATH=/usr/lib:/usr/local/lib/pkgconfig
-export LD_LIBRARY_PATH=/usr/local/lib
-```
-3. `make`
+We also need `libvterm` (statically compiled in):
+1. Get the repo from here https://www.leonerd.org.uk/code/libvterm/ into a folder called `deps/libvterm`.
+2. Run `make` in `deps/libvterm`.
+3. `make` in the top level.
