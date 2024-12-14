@@ -48,6 +48,7 @@ struct X11
     int buf_w, buf_h;
 };
 
+struct X11 x11;
 struct PTY pty;
 VTerm *vt;
 VTermScreen *vts;
@@ -102,6 +103,76 @@ vt_output_callback(const char* s, size_t len, void *user)
     (void)user;
     for (size_t i = 0; i < len; i++)
         write(pty.master, &s[i], 1);
+}
+
+int
+x11_get_selection(struct X11* x11, char** s){
+    Atom PRIMARY = XInternAtom(x11->dpy, "PRIMARY", 0);
+    Atom XSEL_DATA = XInternAtom(x11->dpy, "XSEL_DATA", 0);
+    Atom UTF8_STRING = XInternAtom(x11->dpy, "UTF8_STRING", True);
+    XEvent event;
+    Atom target;
+    int format;
+    unsigned long N, size;
+    char *data;
+
+    XConvertSelection(x11->dpy, PRIMARY, UTF8_STRING, XSEL_DATA, x11->termwin, CurrentTime);
+    XSync(x11->dpy, False);
+
+    XNextEvent(x11->dpy, &event);
+    if (event.type != SelectionNotify) {
+        printf("Incorrect event received!");
+        return 0;
+    }
+
+    if (event.xselection.selection != PRIMARY) {
+        printf("Wrong type of selection received!");
+        return 0;
+    }
+
+    if (!event.xselection.property) {
+        printf("Selection property not received!");
+        return 0;
+    }
+
+    XGetWindowProperty(x11->dpy, x11->termwin, event.xselection.property,
+                       0L, (~0L), 0, AnyPropertyType, &target,
+                       &format, &size, &N, (unsigned char**) &data);
+    if (target != UTF8_STRING) {
+        printf("Selection target incorrect!");
+        return 0;
+    }
+
+    *s = (char *)malloc(size+1);
+    memcpy(*s, data, size);
+    (*s)[size] = '\0';
+
+    XFree(data);
+    XDeleteProperty(x11->dpy, x11->termwin, event.xselection.property);
+
+    return size;
+}
+
+void
+x11_button(XButtonEvent *ev)
+{
+    // if middle click - paste
+    if (ev->button == Button2) {
+        char *data;
+        int size = x11_get_selection(&x11, &data);
+        if (size == 0) {
+            printf("No data found when trying to paste.\n");
+            return;
+        }
+
+        vterm_keyboard_start_paste(vt);
+        // send in the characters
+        for(int i = 0; i < size; i++) {
+            vterm_keyboard_unichar(vt, data[i], VTERM_MOD_NONE);
+        }
+        vterm_keyboard_end_paste(vt);
+        free(data);
+    }
 }
 
 void
@@ -260,7 +331,7 @@ x11_setup(struct X11 *x11)
 
     /* allow receiving mouse events */
     XSelectInput(x11->dpy, x11->termwin,
-                KeyReleaseMask|KeyPressMask|ExposureMask);
+                KeyReleaseMask|KeyPressMask|ExposureMask|ButtonPressMask);
 
     XStoreName(x11->dpy, x11->termwin, "vex");
     XMapWindow(x11->dpy, x11->termwin);
@@ -372,6 +443,9 @@ run(struct PTY *pty, struct X11 *x11)
                     case KeyPress:
                         x11_key(&ev.xkey);
                         break;
+                    case ButtonPress:
+                        x11_button(&ev.xbutton);
+                        break;
                 }
             }
         }
@@ -383,7 +457,6 @@ run(struct PTY *pty, struct X11 *x11)
 int
 main()
 {
-    struct X11 x11;
 
     int rows, cols;
     rows = 25, cols = 80;
