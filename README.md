@@ -25,3 +25,8 @@ X11 Clipboard:
 - https://github.com/exebook/x11clipboard
 - https://github.com/ColleagueRiley/Clipboard-Copy-Paste
 - https://handmade.network/forums/articles/t/8544-implementing_copy_paste_in_x11
+
+Unicode support:
+- https://www.cl.cam.ac.uk/~mgk25/unicode.html (very helpful)
+- https://kermitproject.org/utf8.html (samples)
+- https://behdad.org/text/ (State of Text Rendering)

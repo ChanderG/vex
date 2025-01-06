@@ -229,10 +229,12 @@ x11_redraw(struct X11 *x11)
                 fg = &x11->fcol_bg;
             }
 
-            XftDrawString8(x11->fdraw, fg, x11->font,
+            XftDrawString32(x11->fdraw, fg, x11->font,
                         x * x11->font_width,
                         y * x11->font_height + x11->font->ascent,
-                        (XftChar8 *) cell.chars, cell.width);
+                        (XftChar32 *) cell.chars, 1);
+            // note that we only use the first char instead of cell.width
+            // we we don't have the tech (read: harfbuzz) for combining chars
         }
     }
 
@@ -354,7 +356,7 @@ bool
 spawn(struct PTY *pty)
 {
     pid_t p;
-    char *env[] = { "TERM=xterm", NULL };
+    setenv("TERM", "xterm", 1);
 
     p = fork();
     if (p == 0)
@@ -376,7 +378,7 @@ spawn(struct PTY *pty)
         dup2(pty->slave, 2);
         close(pty->slave);
 
-        execle(SHELL, "-" SHELL, (char *)NULL, env);
+        execl(SHELL, "-" SHELL, (char *)NULL);
         return false;
     }
     else if (p > 0)
@@ -470,7 +472,7 @@ main()
     if (vt == NULL)
         return 1;
 
-    vterm_set_utf8(vt, 0);
+    vterm_set_utf8(vt, 1);
     vtstate = vterm_obtain_state(vt);
     vterm_state_reset(vtstate, 1);
     vts = vterm_obtain_screen(vt);
