@@ -205,6 +205,7 @@ x11_redraw(struct X11 *x11)
 {
     int x, y;
     VTermScreenCell cell;
+    XftColor *fg;
 
     XSetForeground(x11->dpy, x11->termgc, x11->col_bg);
     XFillRectangle(x11->dpy, x11->termwin, x11->termgc, 0, 0, x11->w, x11->h);
@@ -215,6 +216,9 @@ x11_redraw(struct X11 *x11)
         {
             vterm_screen_get_cell(vts, (VTermPos){.row = y, .col = x}, &cell);
 
+            // default color
+            fg = &x11->fcol_fg;
+
             if (cell.attrs.reverse) {
                 // draw background of cell
                 XSetForeground(x11->dpy, x11->termgc, x11->col_fg);
@@ -222,15 +226,10 @@ x11_redraw(struct X11 *x11)
                             x * x11->font_width,
                             y * x11->font_height,
                             x11->font_width, x11->font_height);
-
-                XftDrawString8(x11->fdraw, &x11->fcol_bg, x11->font,
-                            x * x11->font_width,
-                            y * x11->font_height + x11->font->ascent,
-                            (XftChar8 *) cell.chars, cell.width);
-                continue;
+                fg = &x11->fcol_bg;
             }
 
-            XftDrawString8(x11->fdraw, &x11->fcol_fg, x11->font,
+            XftDrawString8(x11->fdraw, fg, x11->font,
                         x * x11->font_width,
                         y * x11->font_height + x11->font->ascent,
                         (XftChar8 *) cell.chars, cell.width);
