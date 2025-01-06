@@ -16,6 +16,7 @@
 #include <pty.h>
 #include <X11/Xft/Xft.h>
 #include <vterm.h>
+#include "unicode.h"
 
 /* Launching /bin/sh may launch a GNU Bash and that can have nasty side
  * effects. On my system, it clobbers ~/.bash_history because it doesn't
@@ -165,13 +166,24 @@ x11_button(XButtonEvent *ev)
             return;
         }
 
+        // now we have the clipboard content in utf-8 format
+        // we need to convert this into ucs-4/utf-32 to feed into vterm
+        // This circular methodology is ugly but unavoidable:
+        // 1. We cannnot exfil data from X11 in any other format than utf-8. Apart from ASCII, utf-8 is the only one supported. This kinda makes sense from a standardization/space-saving sense.
+        // 2. We need to interface with the libvterm lib using ucs-4 aka utf32. So, we need to do this conversion.
+        // 3. libvterm internally actually has the same code we have here, to be able to convert utf-8 data coming from the actual terminal process (which is then exposed as a part of the screen cell api). But this stuff is internal to libvterm, so we can't re-use this function.
+        // 4. There is no standard conversion implementation. I have lifted code here as-is from suckless st's codebase.
+        Rune* data4;
+        size_t size4 = utf8_to_ucs4(data, &data4, size);
+
         vterm_keyboard_start_paste(vt);
         // send in the characters
-        for(int i = 0; i < size; i++) {
-            vterm_keyboard_unichar(vt, data[i], VTERM_MOD_NONE);
+        for(size_t i = 0; i < size4; i++) {
+            vterm_keyboard_unichar(vt, data4[i], VTERM_MOD_NONE);
         }
         vterm_keyboard_end_paste(vt);
         free(data);
+        free(data4);
     }
 }
 

@@ -11,8 +11,8 @@ CFLAGS += -g -std=c99 -Wall -Wextra \
 
 all: vex
 
-vex: vex.c
-	gcc $(CFLAGS) $(LDLIBS) -o vex vex.c ./deps/libvterm/.libs/libvterm.a
+vex: vex.c unicode.c
+	gcc $(CFLAGS) $(LDLIBS) -o vex vex.c unicode.c ./deps/libvterm/.libs/libvterm.a
 
 clean:
 	rm vex
