@@ -213,6 +213,17 @@ x11_key(XKeyEvent *ev)
 }
 
 void
+x11_resize(struct X11 *x11, XExposeEvent* ev)
+{
+    x11->w = ev->width;
+    x11->h = ev->height;
+    x11->buf_w = ev->width / x11->font_width;
+    x11->buf_h = ev->height / x11->font_height;
+    vterm_set_size(vt, x11->buf_h, x11->buf_w);
+    term_set_size(&pty, x11);
+}
+
+void
 x11_redraw(struct X11 *x11)
 {
     int x, y;
@@ -451,6 +462,7 @@ run(struct PTY *pty, struct X11 *x11)
                 switch (ev.type)
                 {
                     case Expose:
+                        x11_resize(x11, &ev.xexpose);
                         x11_redraw(x11);
                         break;
                     case KeyPress:
@@ -470,17 +482,13 @@ run(struct PTY *pty, struct X11 *x11)
 int
 main()
 {
-
-    int rows, cols;
-    rows = 25, cols = 80;
-
     if (!x11_setup(&x11))
         return 1;
 
     if (!pt_pair(&pty))
         return 1;
 
-    vt = vterm_new(rows, cols);
+    vt = vterm_new(x11.buf_h, x11.buf_w);
     if (vt == NULL)
         return 1;
 
